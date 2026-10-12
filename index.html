@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <title>Assay Calculator</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#8a6bbf">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#fbf8fc;--card:#fff;--ink:#2d2a35;--mut:#7a7385;--acc:#8a6bbf;--line:#e6deef;--soft:#f1eaf8}
@@ -106,6 +110,7 @@ function render(){
 sel.addEventListener("change",()=>{const a=A[sel.value];if(a){$("wells").value=a.wells;$("extra").value=a.extra}render()});
 document.querySelectorAll("input,select").forEach(e=>e.addEventListener("input",render));
 const a0=A[sel.value];$("wells").value=a0.wells;$("extra").value=a0.extra;render();
+if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{})}
 </script>
 </body>
 </html>
