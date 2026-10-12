@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Assay Calculator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#fbf8fc;--card:#fff;--ink:#2d2a35;--mut:#7a7385;--acc:#8a6bbf;--line:#e6deef;--soft:#f1eaf8}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1a22;--card:#26232e;--ink:#eee9f5;--mut:#a79fb5;--acc:#b79ae6;--line:#3b3647;--soft:#2f2b3a}}
+:root[data-theme="dark"]{--bg:#1c1a22;--card:#26232e;--ink:#eee9f5;--mut:#a79fb5;--acc:#b79ae6;--line:#3b3647;--soft:#2f2b3a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.4rem;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 18px;font-size:.9rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+label{display:block;font-size:.85rem;color:var(--mut);margin:10px 0 4px}
+input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
+.row{display:flex;gap:10px}.row>*{flex:1}
+h3{margin:0 0 2px;font-size:1rem;color:var(--acc)}
+.note{font-size:.82rem;color:var(--mut);margin:0 0 8px}
+.tot{font-size:.85rem;margin-bottom:6px}
+table{width:100%;border-collapse:collapse}
+td{padding:6px 0;border-top:1px solid var(--line)}
+td:last-child{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.solv td{color:var(--mut);font-weight:400}
+.big{background:var(--soft);border-radius:10px;padding:10px 12px;margin-top:8px;display:flex;justify-content:space-between}
+.warn{color:#c0392b;font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<h1>Assay Calculator</h1>
+<p class="sub">Pick an assay and the number of wells. All amounts are in µL (mL shown when ≥ 1000 µL).</p>
+<div class="card">
+  <label for="assay">Assay</label>
+  <select id="assay"></select>
+  <div id="wellbox">
+    <div class="row">
+      <div><label for="wells">Wells in assay</label><input id="wells" type="number" min="1" step="1" value="8"></div>
+      <div><label for="extra">Extra wells' worth to make</label><input id="extra" type="number" min="0" step="0.5" value="1"></div>
+    </div>
+  </div>
+  <div id="seedbox" style="display:none">
+    <label for="target">Cells per mL needed in final solution</label>
+    <input id="target" type="number" min="0" step="any" value="50000">
+    <label for="vol">Total solution needed (mL)</label>
+    <input id="vol" type="number" min="0" step="any" value="5">
+    <label>Average cell count (cells/mL)</label>
+    <div class="row"><input id="avg" type="number" min="0" step="any" value="1.2"><select id="mult"><option value="1e4">× 10^4</option><option value="1e5">× 10^5</option><option value="1e6" selected>× 10^6</option></select></div>
+  </div>
+</div>
+<div id="out"></div>
+</main>
+<script>
+// Each step: pw = µL per well, n = no extra (washes), c = components as fraction of total volume, s = solvent name,
+// mul = prep volume multiplier, min = minimum total µL. Edit these numbers to change a protocol.
+const A = {
+ live: {name:"Live/Dead (8-well chamber slide, 300 µL/well)", wells:8, extra:2, steps:[
+  {t:"Pre-wash: PBS ×2", pw:600, n:1, s:"PBS", note:"300 µL per well per wash"},
+  {t:"Staining solution (in foil-covered falcon)", pw:300, min:3000, c:[["Calcein",1.5/3000],["EtD",6/3000]], s:"PBS", note:"Add 300 µL/well, cover with foil, 45 min. Minimum batch is 3 mL so calcein is never below 1.5 µL."},
+  {t:"Post-stain wash: PBS ×2", pw:600, n:1, s:"PBS", note:"Image directly after 2nd wash, without aspirating"}]},
+ dcfh: {name:"DCFH (24-well plate, 500 µL/well)", wells:8, extra:1, steps:[
+  {t:"Pre-wash: PBS ×2", pw:1000, n:1, s:"PBS", note:"Assumed 500 µL per well per wash"},
+  {t:"10 µM DCFH working solution", pw:500, c:[["DCFH (10 mM)",0.001]], s:"FB-DMEM", note:"Add 500 µL/well, incubate 20 min. (Your 10-well protocol made no extra: set extra wells to 0 to match.)"},
+  {t:"Post-incubation wash: PBS ×2", pw:1000, n:1, s:"PBS", note:"Assumed 500 µL per well per wash. Image after 2nd wash, without aspirating"}]},
+ rhod: {name:"Rhodamine / Proliferation (24-well plate, 500 µL/well)", wells:5, extra:1, steps:[
+  {t:"Wash after removing spent media: PBS ×2", pw:1000, n:1, s:"PBS"},
+  {t:"4% formaldehyde", pw:500, c:[["Formaldehyde (16%)",0.25]], s:"PBS", note:"500 µL/well, 10 min"},
+  {t:"Wash: PBST", pw:500, s:"PBST"},
+  {t:"0.1% Triton X in PBST", pw:500, c:[["Triton X",0.02]], s:"PBST", note:"500 µL/well, 10 min"},
+  {t:"Wash: PBST", pw:500, s:"PBST"},
+  {t:"1% BSA in PBST (double batch)", pw:500, mul:2, c:[["BSA",0.2]], s:"PBST", note:"Half is for blocking (500 µL/well, 30 min); keep the rest for rhodamine"},
+  {t:"Rhodamine in leftover 1% BSA", pw:500, c:[["Rhodamine",0.0012]], s:"Leftover 1% BSA (from above)", note:"500 µL/well, 1–2 h"},
+  {t:"Final wash: PBS ×2", pw:1000, n:1, s:"PBS", note:"Assumed 500 µL per well per wash. Then mount coverslips and image"}]}
+};
+const $=id=>document.getElementById(id);
+const sel=$("assay");
+sel.innerHTML=Object.entries(A).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join("")+`<option value="seed">Cell seeding calculation</option>`;
+function f(x){let s=(Math.round(x*100)/100).toString();return s+" µL"+(x>=1000?` (${(Math.round(x)/1000).toString()} mL)`:"")}
+function render(){
+  const k=sel.value,out=$("out");
+  $("wellbox").style.display=k==="seed"?"none":"block";
+  $("seedbox").style.display=k==="seed"?"block":"none";
+  if(k==="seed"){
+    const cells=(+$("target").value)*(+$("vol").value), avg=(+$("avg").value)*(+$("mult").value);
+    if(!(avg>0)){out.innerHTML="";return}
+    const sus=cells/avg*1000, total=(+$("vol").value)*1000, media=total-sus;
+    out.innerHTML=`<div class="card"><h3>Seeding result</h3><p class="note">Cells needed: ${cells.toExponential(2)}</p>
+    <div class="big"><span>Cell suspension to take</span><b>${f(sus)}</b></div>
+    <div class="big"><span>Media to add</span><b class="${media<0?"warn":""}">${f(media)}</b></div>
+    ${media<0?'<p class="warn">Cell count is too low: the suspension needed is larger than the total volume.</p>':""}</div>`;
+    return;
+  }
+  const a=A[k], w=+$("wells").value||0, ex=+$("extra").value||0;
+  out.innerHTML=a.steps.map(s=>{
+    let tot=s.pw*(w+(s.n?0:ex))*(s.mul||1);
+    if(s.min&&tot<s.min)tot=s.min;
+    let used=0,rows="";
+    (s.c||[]).forEach(([n,fr])=>{const v=fr*tot;used+=v;rows+=`<tr><td>${n}</td><td>${f(v)}</td></tr>`});
+    rows+=`<tr class="${s.c?"solv":""}"><td>${s.s}</td><td>${f(tot-used)}</td></tr>`;
+    return `<div class="card"><h3>${s.t}</h3>${s.note?`<p class="note">${s.note}</p>`:""}<div class="tot">Total volume: <b>${f(tot)}</b></div><table>${rows}</table></div>`;
+  }).join("");
+}
+sel.addEventListener("change",()=>{const a=A[sel.value];if(a){$("wells").value=a.wells;$("extra").value=a.extra}render()});
+document.querySelectorAll("input,select").forEach(e=>e.addEventListener("input",render));
+const a0=A[sel.value];$("wells").value=a0.wells;$("extra").value=a0.extra;render();
+</script>
+</body>
+</html>
